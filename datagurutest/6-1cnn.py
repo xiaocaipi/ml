@@ -175,6 +175,7 @@ merged = tf.summary.merge_all()
 
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
+	#定义2个 路径
     train_writer = tf.summary.FileWriter('../logs/train', sess.graph)
     test_writer = tf.summary.FileWriter('../logs/test', sess.graph)
     for i in range(1001):
