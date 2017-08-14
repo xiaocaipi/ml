@@ -175,8 +175,8 @@ merged = tf.summary.merge_all()
 
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
-    train_writer = tf.summary.FileWriter('logs/train', sess.graph)
-    test_writer = tf.summary.FileWriter('logs/test', sess.graph)
+    train_writer = tf.summary.FileWriter('../logs/train', sess.graph)
+    test_writer = tf.summary.FileWriter('../logs/test', sess.graph)
     for i in range(1001):
         # 训练模型
         batch_xs, batch_ys = mnist.train.next_batch(batch_size)
