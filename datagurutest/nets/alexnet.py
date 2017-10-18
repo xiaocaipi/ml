@@ -1,0 +1,174 @@
+# coding: utf-8
+# Copyright 2016 The TensorFlow Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""Contains a model definition for AlexNet.
+
+This work was first described in:
+  ImageNet Classification with Deep Convolutional Neural Networks
+  Alex Krizhevsky, Ilya Sutskever and Geoffrey E. Hinton
+
+and later refined in:
+  One weird trick for parallelizing convolutional neural networks
+  Alex Krizhevsky, 2014
+
+Here we provide the implementation proposed in "One weird trick" and not
+"ImageNet Classification", as per the paper, the LRN layers have been removed.
+
+Usage:
+  with slim.arg_scope(alexnet.alexnet_v2_arg_scope()):
+    outputs, end_points = alexnet.alexnet_v2(inputs)
+
+@@alexnet_v2
+"""
+
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+import tensorflow as tf
+
+slim = tf.contrib.slim
+trunc_normal = lambda stddev: tf.truncated_normal_initializer(0.0, stddev)
+
+#定义网络里面的参数  这个是在nets  下面的net_factory.py 这个调用的
+def alexnet_v2_arg_scope(weight_decay=0.0005):
+	#在这个作用域下面 卷积的操作 以及全连接的操作，用到的激活函数是rulu
+	#偏置值的初始化方式是 初始化为0.1
+	#权值 正则化方式用到的是 l2 正则化   weight_decay 这个是正则化系数的参数
+  with slim.arg_scope([slim.conv2d, slim.fully_connected],
+                      activation_fn=tf.nn.relu,
+                      biases_initializer=tf.constant_initializer(0.1),
+                      weights_regularizer=slim.l2_regularizer(weight_decay)):
+	#卷积操作的padding 是same
+    with slim.arg_scope([slim.conv2d], padding='SAME'):
+		#池化的操作是valid
+		#这里面定义了3个作用域，最里面这个定义的池化层
+		#因为这个池化层是在 3层作用域的最里面，池化层默认的 padding 方式是valid，池化层的 权值正则化方式 就是上面作用域定义的  l2
+		#默认的激活函数就是 上面作用域定义的rule
+      with slim.arg_scope([slim.max_pool2d], padding='VALID') as arg_sc:
+        return arg_sc
+
+#定义alex net 的网络结构
+#这个网络是在之前定义的3个作用域下面，参数都是都是3个作用域的参数
+def alexnet_v2(inputs,
+               num_classes=1000,
+               is_training=True,
+               dropout_keep_prob=0.5,
+               spatial_squeeze=True,
+               scope='alexnet_v2'):
+  """AlexNet version 2.
+
+  Described in: http://arxiv.org/pdf/1404.5997v2.pdf
+  Parameters from:
+  github.com/akrizhevsky/cuda-convnet2/blob/master/layers/
+  layers-imagenet-1gpu.cfg
+
+  Note: All the fully_connected layers have been transformed to conv2d layers.
+        To use in classification mode, resize input to 224x224. To use in fully
+        convolutional mode, set spatial_squeeze to false.
+        The LRN layers have been removed and change the initializers from
+        random_normal_initializer to xavier_initializer.
+
+  Args:
+    inputs: a tensor of size [batch_size, height, width, channels].
+    num_classes: number of predicted classes.
+    is_training: whether or not the model is being trained.
+    dropout_keep_prob: the probability that activations are kept in the dropout
+      layers during training.
+    spatial_squeeze: whether or not should squeeze the spatial dimensions of the
+      outputs. Useful to remove unnecessary dimensions for classification.
+    scope: Optional scope for the variables.
+
+  Returns:
+    the last op containing the log predictions and end_points dict.
+  """
+  #传入的数据是 [batch_size, height, width, channels]. 这样的格式   第一个是批次大小  图片的高 宽  通道数
+  #图片的高和宽 是固定的，要224 *224   通道数 彩色的就是3  黑白的就是1
+  with tf.variable_scope(scope, 'alexnet_v2', [inputs]) as sc:
+    end_points_collection = sc.name + '_end_points'
+    # Collect outputs for conv2d, fully_connected and max_pool2d.
+    with slim.arg_scope([slim.conv2d, slim.fully_connected, slim.max_pool2d],
+                        outputs_collections=[end_points_collection]):
+	#这里调用slim 包里面封装的 卷积操作
+	#第一个参数是输入，就是原来的输入
+	#第二个是 64 就是输出，输出64个特征图
+	#第三个是 卷积核的大小 是11*11   第四个个参数是卷积的步长，第五个参数 是padding 的方法
+      net = slim.conv2d(inputs, 64, [11, 11], 4, padding='VALID',
+                        scope='conv1')
+	#这里调用slim 包里面封装的 池化操作
+	#下面也是 卷积池化 操作，但是这个没有全连接操作，因为这个结构是alexnet v2 ，取消了全连接的部分
+	#把全连接的部分都改成了卷积的操作
+      net = slim.max_pool2d(net, [3, 3], 2, scope='pool1')
+      net = slim.conv2d(net, 192, [5, 5], scope='conv2')
+      net = slim.max_pool2d(net, [3, 3], 2, scope='pool2')
+      net = slim.conv2d(net, 384, [3, 3], scope='conv3')
+      net = slim.conv2d(net, 384, [3, 3], scope='conv4')
+      net = slim.conv2d(net, 256, [3, 3], scope='conv5')
+      net = slim.max_pool2d(net, [3, 3], 2, scope='pool5')
+
+      # Use conv2d instead of fully_connected layers.
+	 
+      with slim.arg_scope([slim.conv2d],
+                          weights_initializer=trunc_normal(0.005),
+                          biases_initializer=tf.constant_initializer(0.1)):
+		#有4096个特征图
+        net = slim.conv2d(net, 4096, [5, 5], padding='VALID',
+                          scope='fc6')
+        net = slim.dropout(net, dropout_keep_prob, is_training=is_training,
+                           scope='dropout6')
+        net = slim.conv2d(net, 4096, [1, 1], scope='fc7')
+        net = slim.dropout(net, dropout_keep_prob, is_training=is_training,
+                           scope='dropout7')
+		 #最后一层 接着下一层
+		 #num_classes  输出类的数量，这里是0-9 就是10个
+		 #这里 老师修改了代码 ，有net0  1  2 3  ，用多任务的方式来学习
+		 #有4个任务，前面net 之前 的网络都是共享的，只有最后一层是不一样的，得到4个输出
+        net0 = slim.conv2d(net, num_classes, [1, 1],
+                          activation_fn=None,
+                          normalizer_fn=None,
+                          biases_initializer=tf.zeros_initializer(),
+                          scope='fc8_0')
+        net1 = slim.conv2d(net, num_classes, [1, 1],
+                          activation_fn=None,
+                          normalizer_fn=None,
+                          biases_initializer=tf.zeros_initializer(),
+                          scope='fc8_1')
+        net2 = slim.conv2d(net, num_classes, [1, 1],
+                          activation_fn=None,
+                          normalizer_fn=None,
+                          biases_initializer=tf.zeros_initializer(),
+                          scope='fc8_2')
+        net3 = slim.conv2d(net, num_classes, [1, 1],
+                          activation_fn=None,
+                          normalizer_fn=None,
+                          biases_initializer=tf.zeros_initializer(),
+                          scope='fc8_3')
+
+      # Convert end_points_collection into a end_point dict.
+      end_points = slim.utils.convert_collection_to_dict(end_points_collection)
+      if spatial_squeeze:
+		 #squeeze 这个是用来去掉维度 比如有一个[[2][1][1][4][4][1]] 比如这样一个  那么 tf.squeeze(, [1, 2],)  就会把第 1  2 个维度去掉 就是[[2][4][4][1]]
+        net0 = tf.squeeze(net0, [1, 2], name='fc8_0/squeezed')
+        end_points[sc.name + '/fc8_0'] = net0
+        net1 = tf.squeeze(net1, [1, 2], name='fc8_1/squeezed')
+        end_points[sc.name + '/fc8_1'] = net1
+        net2 = tf.squeeze(net2, [1, 2], name='fc8_2/squeezed')
+        end_points[sc.name + '/fc8_2'] = net2
+        net3 = tf.squeeze(net3, [1, 2], name='fc8_3/squeezed')
+        end_points[sc.name + '/fc8_3'] = net3
+
+
+      return net0,net1,net2,net3,end_points
+alexnet_v2.default_image_size = 224

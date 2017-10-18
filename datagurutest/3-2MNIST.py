@@ -5,6 +5,7 @@
 import tensorflow as tf
 # 手写数字相关的工具包
 from tensorflow.examples.tutorials.mnist import input_data
+import numpy as np
 
 # In[3]:
 
